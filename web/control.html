@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robot Face Control</title>
+<style>
+  :root { color-scheme: dark; --fg: #e6e6e6; --muted: #8a8a8a; --line: #333; --accent: #3cf0ff; }
+  body { margin: 0; padding: 16px; background: #111; color: var(--fg); font: 15px system-ui, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; display: grid; gap: 16px; }
+  h1 { font-size: 18px; margin: 0; }
+  #status { color: var(--muted); font-size: 13px; }
+  #status.ok { color: #6d6; }
+  .preview { width: 100%; aspect-ratio: 2 / 1; border: 1px solid var(--line); border-radius: 8px; background: #000; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button { background: #222; color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+           padding: 10px 14px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.active { background: var(--accent); color: #000; border-color: var(--accent); }
+  .pad { position: relative; width: min(100%, 320px); aspect-ratio: 2 / 1; background: #1a1a1a;
+         border: 1px solid var(--line); border-radius: 8px; touch-action: none; cursor: crosshair; }
+  .pad .dot { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%;
+              background: var(--accent); left: 50%; top: 50%; pointer-events: none; }
+  .hint { color: var(--muted); font-size: 13px; }
+  #error { color: #f77; font-size: 13px; min-height: 1em; }
+</style>
+</head>
+<body>
+<main>
+  <div class="row"><h1>Robot Face Control</h1><span id="status">connecting…</span></div>
+  <iframe class="preview" src="/" title="Face preview"></iframe>
+
+  <div class="row" id="emotions"></div>
+
+  <div class="row">
+    <div class="pad" id="pad"><div class="dot" id="dot"></div></div>
+    <div style="display:grid; gap:8px">
+      <button id="idle">Idle (wander)</button>
+      <button id="blink">Blink</button>
+      <label class="row">Color <input type="color" id="color" value="#3cf0ff"></label>
+    </div>
+  </div>
+  <p class="hint">Drag in the box to aim the eyes. "Idle" hands control back to the random glances.</p>
+  <div id="error"></div>
+</main>
+<script>
+'use strict';
+const EMOTIONS = ['neutral', 'happy', 'sad', 'angry', 'surprised', 'sleepy'];
+const statusEl = document.getElementById('status');
+const errorEl = document.getElementById('error');
+const pad = document.getElementById('pad');
+const dot = document.getElementById('dot');
+const colorInput = document.getElementById('color');
+const buttons = {};
+let ws = null;
+
+for (const e of EMOTIONS) {
+  const b = document.createElement('button');
+  b.textContent = e;
+  b.onclick = () => send({ emotion: e });
+  document.getElementById('emotions').append(b);
+  buttons[e] = b;
+}
+
+function send(cmd) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(cmd));
+}
+
+function showState(msg) {
+  if (msg.error) { errorEl.textContent = msg.error; return; }
+  errorEl.textContent = '';
+  if (msg.emotion) for (const [e, b] of Object.entries(buttons)) b.classList.toggle('active', e === msg.emotion);
+  if (msg.color) colorInput.value = msg.color;
+  if ('look' in msg) {
+    const [x, y] = msg.look || [0, 0];
+    dot.style.left = `${(x + 1) * 50}%`;
+    dot.style.top = `${(y + 1) * 50}%`;
+    dot.style.opacity = msg.look ? 1 : 0.35;
+  }
+}
+
+function connect() {
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  ws.onopen = () => { statusEl.textContent = 'connected'; statusEl.className = 'ok'; };
+  ws.onmessage = (ev) => { try { showState(JSON.parse(ev.data)); } catch (_) {} };
+  ws.onclose = () => { statusEl.textContent = 'disconnected, retrying…'; statusEl.className = ''; setTimeout(connect, 1000); };
+}
+
+// Look pad: send at most ~30 updates per second while dragging.
+let dragging = false, lastSent = 0;
+function aim(ev) {
+  const r = pad.getBoundingClientRect();
+  const x = Math.max(-1, Math.min(1, ((ev.clientX - r.left) / r.width) * 2 - 1));
+  const y = Math.max(-1, Math.min(1, ((ev.clientY - r.top) / r.height) * 2 - 1));
+  dot.style.left = `${(x + 1) * 50}%`;
+  dot.style.top = `${(y + 1) * 50}%`;
+  dot.style.opacity = 1;
+  const now = performance.now();
+  if (now - lastSent > 33 || ev.type === 'pointerup') {
+    lastSent = now;
+    send({ look: [+x.toFixed(3), +y.toFixed(3)] });
+  }
+}
+pad.addEventListener('pointerdown', (ev) => { dragging = true; pad.setPointerCapture(ev.pointerId); aim(ev); });
+pad.addEventListener('pointermove', (ev) => { if (dragging) aim(ev); });
+pad.addEventListener('pointerup', (ev) => { dragging = false; aim(ev); });
+
+document.getElementById('idle').onclick = () => send({ look: null });
+document.getElementById('blink').onclick = () => send({ blink: true });
+colorInput.oninput = () => send({ color: colorInput.value });
+
+connect();
+</script>
+</body>
+</html>
