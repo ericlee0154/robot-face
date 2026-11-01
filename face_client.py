@@ -5,6 +5,7 @@ In Python:
     from face_client import Face
     face = Face()                # http://127.0.0.1:8000 by default
     face.emotion("happy")
+    face.style("classic")        # "ascii" (default) or "classic"
     face.look(0.5, -0.2)         # x right, y down, each -1..1
     face.blink()
     face.idle()                  # stop aiming, let the eyes wander
@@ -12,6 +13,7 @@ In Python:
 
 From the shell:
     python3 face_client.py happy
+    python3 face_client.py --style classic
     python3 face_client.py --look 0.5 -0.2
     python3 face_client.py --blink
     python3 face_client.py --idle
@@ -22,8 +24,6 @@ import json
 import sys
 import urllib.error
 import urllib.request
-
-EMOTIONS = ("neutral", "happy", "sad", "angry", "surprised", "sleepy")
 
 
 class Face:
@@ -48,6 +48,9 @@ class Face:
     def emotion(self, name: str) -> dict:
         return self.send(emotion=name)
 
+    def style(self, name: str) -> dict:
+        return self.send(style=name)
+
     def look(self, x: float, y: float) -> dict:
         return self.send(look=[x, y])
 
@@ -67,7 +70,8 @@ class Face:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Send a command to the robot face.")
-    p.add_argument("emotion", nargs="?", choices=EMOTIONS)
+    p.add_argument("emotion", nargs="?", help="e.g. happy, sad, angry, love, dizzy (server lists all on error)")
+    p.add_argument("--style", help="ascii or classic")
     p.add_argument("--look", nargs=2, type=float, metavar=("X", "Y"), help="aim the eyes, -1..1 each")
     p.add_argument("--idle", action="store_true", help="let the eyes wander on their own")
     p.add_argument("--blink", action="store_true")
@@ -78,6 +82,8 @@ def main() -> None:
     cmd = {}
     if args.emotion:
         cmd["emotion"] = args.emotion
+    if args.style:
+        cmd["style"] = args.style
     if args.look:
         cmd["look"] = args.look
     if args.idle:

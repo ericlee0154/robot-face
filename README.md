@@ -2,6 +2,13 @@
 
 A robot face for a Jetson Orin Nano, displayed on an LG G8X: glowing eyes on a black background.
 
+Two styles, switchable at runtime:
+
+- **`ascii`** (default): text-glyph eyes like `^ ^`, `> <`, `T T`, `@ @` with a CRT scanline look
+- **`classic`**: rounded glowing rectangles shaped by eyelids
+
+14 expressions: `neutral` `happy` `sad` `angry` `surprised` `sleepy` `love` `wink` `dizzy` `excited` `confused` `cry` `dead` `money`
+
 - **Jetson** runs `server.py` (Python standard library only, nothing to install). It serves the web page and pushes face commands over WebSocket.
 - **Phone** opens the page in Chrome. All animation (blinking, eye movement, expression changes, idle glances) runs on the phone.
 
@@ -50,7 +57,8 @@ With the phone and Jetson on the same network, open the URL that `server.py` pri
 from face_client import Face
 
 face = Face()               # defaults to http://127.0.0.1:8000
-face.emotion("happy")       # neutral, happy, sad, angry, surprised, sleepy
+face.emotion("happy")       # see the expression list above
+face.style("classic")       # "ascii" (default) or "classic"
 face.look(0.5, -0.2)        # x right, y down, each -1..1
 face.blink()
 face.idle()                 # stop aiming; let the eyes wander on their own
@@ -61,6 +69,7 @@ Command line:
 
 ```bash
 python3 face_client.py happy
+python3 face_client.py --style classic
 python3 face_client.py --look 0.5 -0.2
 python3 face_client.py --blink
 python3 face_client.py --idle
@@ -79,22 +88,35 @@ JSON sent to `POST /api/face` or over the WebSocket at `/ws`. Every field is opt
 
 | Field | Meaning |
 |---|---|
-| `emotion` | `neutral` `happy` `sad` `angry` `surprised` `sleepy` |
+| `emotion` | One of the 14 expressions listed at the top |
+| `style` | `ascii` or `classic` |
 | `look` | `[x, y]`, each -1..1; `null` returns to idle wandering |
 | `blink` | `true` to blink once |
 | `color` | Eye color as `#rrggbb` |
 
-A newly connected screen first receives the full current state, so the expression survives a page reload or reconnect.
+A newly connected screen first receives the full current state (plus the lists of emotions and styles), so the expression survives a page reload or reconnect.
+
+For previews, URL parameters pin the face and ignore the server: `/?style=ascii&emotion=love`. Add `&offline` to skip connecting entirely.
 
 ## Tuning the look
 
-Expression parameters live in `EMOTIONS` at the top of `web/face.js`:
+Both styles are defined at the top of `web/face.js`.
+
+**`ASCII`** — one entry per expression:
+
+- `eyes`: `[left, right]` glyphs, e.g. `['^', '^']`
+- `brows`: optional `[left, right]` glyphs drawn above the eyes, e.g. `['\\', '/']` for angry
+- `scale`: glyph size multiplier
+- `fx`: extra animation: `zzz`, `pulse`, `spin`, `bounce`, `question` or `tears`
+
+**`CLASSIC`** — eyelid shapes:
 
 - `w`, `h`: eye width / height multipliers
 - `topIn`, `topOut`: how much the upper lid covers at the inner / outer edge (0–1); different values tilt the lid (angry, sad)
 - `bottom`: a curve pushing up from below (happy squint)
+- `wink`: 1 closes the right eye
 
-To add an expression, add an entry to `EMOTIONS` and add its name to `EMOTIONS` in `server.py`.
+To add an expression, add an entry to both `ASCII` and `CLASSIC` in `web/face.js`, and add its name to `EMOTIONS` in `server.py`. The control page picks up new names automatically.
 
 ## OLED note
 

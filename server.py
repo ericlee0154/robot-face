@@ -10,6 +10,7 @@ Commands (JSON) can arrive two ways:
 
 Fields (all optional, at least one required):
   emotion  one of EMOTIONS
+  style    one of STYLES ("ascii" or "classic")
   look     [x, y] in -1..1 (x right, y down), or null to go back to idle wandering
   blink    true to blink once
   color    "#rrggbb" eye color
@@ -29,7 +30,11 @@ from pathlib import Path
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-EMOTIONS = ("neutral", "happy", "sad", "angry", "surprised", "sleepy")
+EMOTIONS = (
+    "neutral", "happy", "sad", "angry", "surprised", "sleepy", "love",
+    "wink", "dizzy", "excited", "confused", "cry", "dead", "money",
+)
+STYLES = ("ascii", "classic")
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 MAX_BODY = 64 * 1024
 HEARTBEAT_SECONDS = 15  # screens reconnect if they hear nothing for ~45 s
@@ -39,7 +44,7 @@ ROUTES = {"/": "index.html", "/control": "control.html"}
 log = logging.getLogger("robotface")
 
 # Persistent face state; sent to each screen when it connects.
-state = {"emotion": "neutral", "look": None, "color": "#3cf0ff"}
+state = {"emotion": "neutral", "style": "ascii", "look": None, "color": "#3cf0ff"}
 clients: set[asyncio.StreamWriter] = set()
 
 
@@ -55,6 +60,11 @@ def apply_command(cmd: object) -> dict:
         if emotion not in EMOTIONS:
             raise ValueError(f"unknown emotion {emotion!r}; choose from {', '.join(EMOTIONS)}")
         state["emotion"] = out["emotion"] = emotion
+    if "style" in cmd:
+        style = str(cmd["style"])
+        if style not in STYLES:
+            raise ValueError(f"unknown style {style!r}; choose from {', '.join(STYLES)}")
+        state["style"] = out["style"] = style
     if "look" in cmd:
         look = cmd["look"]
         if look is not None:
@@ -72,7 +82,7 @@ def apply_command(cmd: object) -> dict:
     if cmd.get("blink"):
         out["blink"] = True
     if not out:
-        raise ValueError("no recognised fields; use emotion, look, blink or color")
+        raise ValueError("no recognised fields; use emotion, style, look, blink or color")
     return out
 
 
@@ -135,7 +145,8 @@ async def serve_ws(reader, writer, headers: dict, peer: str) -> None:
         "Upgrade: websocket\r\nConnection: Upgrade\r\n"
         f"Sec-WebSocket-Accept: {accept}\r\n\r\n".encode()
     )
-    writer.write(ws_frame(json.dumps(state).encode()))
+    hello = {**state, "emotions": list(EMOTIONS), "styles": list(STYLES)}
+    writer.write(ws_frame(json.dumps(hello).encode()))
     await writer.drain()
     clients.add(writer)
     log.info("screen connected: %s (%d total)", peer, len(clients))

@@ -9,6 +9,7 @@
   body { margin: 0; padding: 16px; background: #111; color: var(--fg); font: 15px system-ui, sans-serif; }
   main { max-width: 900px; margin: 0 auto; display: grid; gap: 16px; }
   h1 { font-size: 18px; margin: 0; }
+  h2 { font-size: 13px; margin: 0 0 6px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
   #status { color: var(--muted); font-size: 13px; }
   #status.ok { color: #6d6; }
   .preview { width: 100%; aspect-ratio: 2 / 1; border: 1px solid var(--line); border-radius: 8px; background: #000; }
@@ -17,11 +18,12 @@
            padding: 10px 14px; font: inherit; cursor: pointer; }
   button:hover { border-color: var(--accent); }
   button.active { background: var(--accent); color: #000; border-color: var(--accent); }
+  .swatch { width: 36px; height: 36px; padding: 0; }
   .pad { position: relative; width: min(100%, 320px); aspect-ratio: 2 / 1; background: #1a1a1a;
          border: 1px solid var(--line); border-radius: 8px; touch-action: none; cursor: crosshair; }
   .pad .dot { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%;
               background: var(--accent); left: 50%; top: 50%; pointer-events: none; }
-  .hint { color: var(--muted); font-size: 13px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0; }
   #error { color: #f77; font-size: 13px; min-height: 1em; }
 </style>
 </head>
@@ -30,46 +32,79 @@
   <div class="row"><h1>Robot Face Control</h1><span id="status">connecting…</span></div>
   <iframe class="preview" src="/" title="Face preview"></iframe>
 
-  <div class="row" id="emotions"></div>
+  <section><h2>Style</h2><div class="row" id="styles"></div></section>
+  <section><h2>Emotion</h2><div class="row" id="emotions"></div></section>
 
-  <div class="row">
-    <div class="pad" id="pad"><div class="dot" id="dot"></div></div>
-    <div style="display:grid; gap:8px">
-      <button id="idle">Idle (wander)</button>
-      <button id="blink">Blink</button>
-      <label class="row">Color <input type="color" id="color" value="#3cf0ff"></label>
+  <section>
+    <h2>Eyes</h2>
+    <div class="row">
+      <div class="pad" id="pad"><div class="dot" id="dot"></div></div>
+      <div style="display:grid; gap:8px">
+        <button id="idle">Idle (wander)</button>
+        <button id="blink">Blink</button>
+      </div>
     </div>
-  </div>
-  <p class="hint">Drag in the box to aim the eyes. "Idle" hands control back to the random glances.</p>
+    <p class="hint">Drag in the box to aim the eyes. "Idle" hands control back to the random glances.</p>
+  </section>
+
+  <section>
+    <h2>Color</h2>
+    <div class="row" id="colors">
+      <input type="color" id="color" value="#3cf0ff" aria-label="Custom color">
+    </div>
+  </section>
   <div id="error"></div>
 </main>
 <script>
 'use strict';
-const EMOTIONS = ['neutral', 'happy', 'sad', 'angry', 'surprised', 'sleepy'];
+const PRESETS = { cyan: '#3cf0ff', green: '#33ff66', amber: '#ffb000', white: '#f0f0f0', pink: '#ff5fd2', red: '#ff3b3b' };
 const statusEl = document.getElementById('status');
 const errorEl = document.getElementById('error');
 const pad = document.getElementById('pad');
 const dot = document.getElementById('dot');
 const colorInput = document.getElementById('color');
-const buttons = {};
+const groups = { emotion: {}, style: {} };
 let ws = null;
-
-for (const e of EMOTIONS) {
-  const b = document.createElement('button');
-  b.textContent = e;
-  b.onclick = () => send({ emotion: e });
-  document.getElementById('emotions').append(b);
-  buttons[e] = b;
-}
 
 function send(cmd) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(cmd));
 }
 
+// Buttons are built from the lists the server sends on connect.
+function buildButtons(field, containerId, names) {
+  const box = document.getElementById(containerId);
+  box.replaceChildren();
+  groups[field] = {};
+  for (const name of names) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.onclick = () => send({ [field]: name });
+    box.append(b);
+    groups[field][name] = b;
+  }
+}
+
+function markActive(field, value) {
+  for (const [name, b] of Object.entries(groups[field])) b.classList.toggle('active', name === value);
+}
+
+for (const [name, hex] of Object.entries(PRESETS)) {
+  const b = document.createElement('button');
+  b.className = 'swatch';
+  b.title = name;
+  b.style.background = hex;
+  b.onclick = () => send({ color: hex });
+  colorInput.before(b);
+}
+
 function showState(msg) {
   if (msg.error) { errorEl.textContent = msg.error; return; }
+  if (msg.ping) return;
   errorEl.textContent = '';
-  if (msg.emotion) for (const [e, b] of Object.entries(buttons)) b.classList.toggle('active', e === msg.emotion);
+  if (msg.emotions) buildButtons('emotion', 'emotions', msg.emotions);
+  if (msg.styles) buildButtons('style', 'styles', msg.styles);
+  if (msg.emotion) markActive('emotion', msg.emotion);
+  if (msg.style) markActive('style', msg.style);
   if (msg.color) colorInput.value = msg.color;
   if ('look' in msg) {
     const [x, y] = msg.look || [0, 0];
